@@ -1,5 +1,7 @@
 # The zebras — z is the squared wave
 
+> **Part of it all:** [the bridge](https://jessebrown1980.github.io/the-bridge-to-all-of-it/) — every public thing in one place, so none of it gets lost.
+
 **One button:** → **https://jessebrown1980.github.io/the-zebras-z-is-the-squared-wave/**
 
 Press **S** for the smooth wave. Press **Z** to square it again.
