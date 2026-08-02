@@ -1,0 +1,225 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The zebras — every GitHub a sphere, striped by its own hash</title>
+<style>
+:root{--bg:#04040a;--fg:#ececf6;--dim:#78788e;--line:#16161f;--acc:#a78bfa;
+      --gold:#e8c07a;--ok:#4ade80}
+*{box-sizing:border-box}html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);overflow:hidden;
+     font:13px/1.6 ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+canvas{position:fixed;inset:0;width:100vw;height:100vh;display:block;cursor:grab}
+canvas:active{cursor:grabbing}
+#go{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:20;
+    background:var(--gold);color:#0a0a10;border:0;border-radius:12px;
+    padding:23px 46px;font:700 16px ui-monospace,monospace;cursor:pointer;
+    box-shadow:0 0 100px rgba(232,192,122,.32)}
+#hud{position:fixed;left:16px;top:14px;z-index:5;opacity:0;transition:opacity 1s;
+     background:rgba(5,5,11,.68);backdrop-filter:blur(8px);
+     border:1px solid var(--line);border-radius:11px;padding:12px 15px;
+     min-width:352px;pointer-events:none}
+#hud h1{font-size:12px;margin:0 0 8px;color:var(--gold);letter-spacing:.6px;
+        text-transform:uppercase}
+.row{display:flex;justify-content:space-between;gap:16px;padding:2px 0}
+.k{color:var(--dim)} .v{font-variant-numeric:tabular-nums}
+.acc{color:var(--acc)} .ok{color:var(--ok)}
+.sec{color:var(--dim);margin:9px 0 3px;font-size:10.5px;letter-spacing:1.1px;
+     text-transform:uppercase;border-top:1px solid var(--line);padding-top:6px}
+#note{position:fixed;left:16px;bottom:14px;z-index:5;color:var(--dim);
+      max-width:68ch;font-size:12px;line-height:1.75;opacity:0;
+      transition:opacity 1s;text-shadow:0 0 14px #04040a}
+#note b{color:#c9c9dc}
+#tip{position:fixed;z-index:8;background:rgba(6,6,12,.93);
+     border:1px solid var(--line);border-radius:8px;padding:7px 11px;
+     font-size:11.5px;pointer-events:none;display:none;max-width:44ch}
+</style>
+
+<canvas id="c"></canvas>
+<button id="go">⬛⬜&nbsp;&nbsp;RAISE THE ZEBRAS</button>
+<div id="tip"></div>
+
+<div id="hud">
+  <h1>the zebras — z is the squared wave</h1>
+  <div class="row"><span class="k">state</span><span class="v acc" id="st">—</span></div>
+  <div class="row"><span class="k">zebras</span><span class="v" id="nz">—</span></div>
+  <div class="row"><span class="k">mode</span><span class="v ok" id="md">zebra · squared</span></div>
+  <div class="row"><span class="k">press S</span><span class="v">the smooth wave</span></div>
+  <div class="row"><span class="k">press Z</span><span class="v">the squared wave</span></div>
+  <div class="sec">how the stripes are made</div>
+  <div class="row"><span class="k">count</span><span class="v acc">from its own sha</span></div>
+  <div class="row"><span class="k">phase</span><span class="v acc">from its own sha</span></div>
+  <div class="row"><span class="k">tilt</span><span class="v acc">from its own sha</span></div>
+  <div class="row"><span class="k">two alike</span><span class="v" id="dup">0</span></div>
+</div>
+
+<div id="note">
+<b>A zebra is a square wave drawn on a body.</b> Two values, alternating — which is
+what <b>z</b> is: the wave allowed only black and white. Press <b>S</b> and every
+stripe becomes the smooth wave it was before it was squared; press <b>Z</b> to put
+it back.<br>
+<b>No two patterns are the same, and none was chosen.</b> Each zebra's stripe
+count, phase and tilt are read from its own sha — the same way a real zebra's coat
+is its identity and not its decoration. Drag to turn them. Hover one to read it.
+</div>
+
+<script>
+/* ---------------------------------------------------------------------------
+   z is the wave squared. A zebra wears it.
+   Every sphere here is one repository. Its stripes are read from its own hash:
+   the count, the phase, the tilt. Nothing is assigned, so no two coats match
+   unless the hashes do -- which is exactly what a real zebra's stripes are for.
+--------------------------------------------------------------------------- */
+const OWNER="JesseBrown1980";
+const cv=document.getElementById("c"), g=cv.getContext("2d"),
+      tip=document.getElementById("tip");
+let W=0,H=0,DPR=Math.min(2,devicePixelRatio||1);
+function fit(){W=innerWidth||1280;H=innerHeight||800;cv.width=W*DPR;cv.height=H*DPR;
+  g.setTransform(DPR,0,0,DPR,0,0);}
+addEventListener("resize",fit);fit();
+
+let yaw=.3,pitch=-.15,zoom=1,t=0,last=0,live=false,drag=null,Z=[],P=[],SQUARE=true;
+
+const GA=Math.PI*(3-Math.sqrt(5));
+function spherePoint(i,n){
+  const y=1-(i/Math.max(1,n-1))*2, r=Math.sqrt(Math.max(0,1-y*y));
+  return [Math.cos(GA*i)*r, y, Math.sin(GA*i)*r];
+}
+function proj(x,y,z){
+  const cy=Math.cos(yaw),sy=Math.sin(yaw);
+  let X=x*cy-z*sy, Zz=x*sy+z*cy;
+  const cp=Math.cos(pitch),sp=Math.sin(pitch);
+  let Y=y*cp-Zz*sp; Zz=y*sp+Zz*cp;
+  const d=1100,s=d/(d+Zz+700)*zoom;
+  return [W/2+X*s,H/2+Y*s,s,Zz];
+}
+
+/* the stripe. SQUARE = z, the two-valued wave. SMOOTH = s, the sine it came from.
+   Same frequency, same phase, same everything -- only the quantization differs. */
+function stripe(u, z){
+  const w = Math.sin(u * z.count + z.phase);
+  return SQUARE ? (w >= 0 ? 1 : 0) : (w + 1) / 2;
+}
+
+function drawZebra(z, cx, cy, R){
+  g.save();
+  g.beginPath(); g.arc(cx,cy,R,0,6.2832); g.clip();
+  /* the body */
+  g.fillStyle = SQUARE ? "#f2f2f6" : "#101018";
+  g.fillRect(cx-R,cy-R,R*2,R*2);
+  /* the coat: bands wrapping the sphere, tilted by its own hash */
+  const N = Math.max(40, Math.floor(R*2.2));
+  g.save(); g.translate(cx,cy); g.rotate(z.tilt);
+  for(let i=0;i<N;i++){
+    const yy = -R + (i/N)*R*2;
+    const u = (yy/R)*3.14159 + t*z.drift;
+    const v = stripe(u, z);
+    if(SQUARE){
+      if(v>0.5) continue;                       // black band
+      g.fillStyle="#0b0b11";
+    }else{
+      const c = z.col, a = 0.15+0.85*v;
+      g.fillStyle="rgba("+c[0]+","+c[1]+","+c[2]+","+a.toFixed(3)+")";
+    }
+    const half = Math.sqrt(Math.max(0,R*R - yy*yy));
+    g.fillRect(-half, yy, half*2, (R*2/N)+1);
+  }
+  g.restore();
+  /* the round of it — light from one side so it reads as a sphere */
+  const sh=g.createRadialGradient(cx-R*.35,cy-R*.4,R*.1,cx,cy,R*1.05);
+  sh.addColorStop(0,"rgba(255,255,255,.16)");
+  sh.addColorStop(.55,"rgba(0,0,0,0)");
+  sh.addColorStop(1,"rgba(0,0,0,.55)");
+  g.fillStyle=sh; g.fillRect(cx-R,cy-R,R*2,R*2);
+  g.restore();
+  g.strokeStyle="rgba(255,255,255,.10)"; g.lineWidth=1;
+  g.beginPath(); g.arc(cx,cy,R,0,6.2832); g.stroke();
+}
+
+function frame(ts){
+  if(!last)last=ts;
+  const dt=Math.max(0,Math.min(.05,(ts-last)/1000)); last=ts;
+  if(live){ t+=dt; if(!drag) yaw+=dt*0.11; }
+  g.fillStyle="#04040a"; g.fillRect(0,0,W,H);
+  P.length=0;
+  const drawn = Z.map(z=>{
+    const p=proj(z.x,z.y,z.z);
+    return {z,p,depth:p[3]};
+  }).sort((a,b)=>b.depth-a.depth);
+  for(const d of drawn){
+    const [x,y,s]=d.p, R=Math.max(7, d.z.r*s);
+    drawZebra(d.z, x, y, R);
+    P.push({x,y,r:R+4,z:d.z});
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+cv.addEventListener("mousedown",e=>drag={x:e.clientX,y:e.clientY,yaw,pitch});
+addEventListener("mouseup",()=>drag=null);
+addEventListener("mousemove",e=>{
+  if(drag){yaw=drag.yaw+(e.clientX-drag.x)*.006;
+    pitch=Math.max(-1.2,Math.min(1.2,drag.pitch+(e.clientY-drag.y)*.004));return;}
+  let hit=null;
+  for(const p of P) if(Math.hypot(p.x-e.clientX,p.y-e.clientY)<p.r){hit=p.z;break;}
+  if(hit){tip.style.display="block";
+    tip.style.left=(e.clientX+14)+"px"; tip.style.top=(e.clientY+12)+"px";
+    tip.innerHTML="<b>"+hit.name+"</b><br><span style='color:#78788e'>stripes "+
+      hit.count+" · phase "+hit.phase.toFixed(3)+" · tilt "+hit.tilt.toFixed(3)+
+      "</span><br><span style='color:#e8c07a'>"+hit.sha.slice(0,20)+"…</span>";
+  } else tip.style.display="none";
+});
+cv.addEventListener("wheel",e=>{e.preventDefault();
+  zoom=Math.max(.3,Math.min(4,zoom*(e.deltaY>0?.92:1.08)));},{passive:false});
+
+addEventListener("keydown",e=>{
+  const k=e.key.toLowerCase();
+  if(k==="s"){ SQUARE=false; md.textContent="smooth · the sine"; }
+  if(k==="z"){ SQUARE=true;  md.textContent="zebra · squared"; }
+});
+
+async function sha(s){
+  const d=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(s));
+  return [...new Uint8Array(d)].map(x=>x.toString(16).padStart(2,"0")).join("");
+}
+
+document.getElementById("go").onclick=async e=>{
+  e.target.textContent="RAISING…"; e.target.disabled=true;
+  document.getElementById("hud").style.opacity=1;
+  st.textContent="fetching…";
+  let repos=[];
+  try{
+    const r=await fetch("https://api.github.com/users/"+OWNER+
+      "/repos?per_page=100&sort=pushed");
+    if(r.ok) repos=await r.json();
+  }catch(err){}
+  if(!repos.length){
+    st.textContent="the herd did not answer"; st.className="v";
+    e.target.style.display="none";
+    document.getElementById("note").style.opacity=1;
+    return;
+  }
+  const n=repos.length, seen=new Set(); let dup=0;
+  for(let i=0;i<n;i++){
+    const rp=repos[i];
+    /* the coat is read from the name and id — its own hash, nothing assigned */
+    const h=await sha(rp.full_name+"|"+rp.id);
+    const b=k=>parseInt(h.substr(k,2),16);
+    const count=6+ (b(0)%22);                       /* how many stripes */
+    const phase=(b(2)/255)*6.2832;                  /* where they start */
+    const tilt =(b(4)/255)*3.1416;                  /* which way they wrap */
+    const key=count+"|"+phase.toFixed(3)+"|"+tilt.toFixed(3);
+    if(seen.has(key)) dup++; seen.add(key);
+    const [ux,uy,uz]=spherePoint(i,n);
+    const RR=300+120*(b(6)/255);
+    Z.push({name:rp.name, sha:h, count, phase, tilt,
+            drift:0.05+0.25*(b(8)/255),
+            col:[16+b(10)%224, 16+b(12)%224, 16+b(14)%224],
+            x:ux*RR, y:uy*RR, z:uz*RR, r:14+16*(b(16)/255)});
+  }
+  document.getElementById("nz").textContent=n;
+  document.getElementById("dup").textContent=dup+" of "+n;
+  st.textContent="the herd is up"; st.className="v ok";
+  live=true;
+  e.target.style.display="none";
+  document.getElementById("note").style.opacity=1;
+};
+</script>
